@@ -7,29 +7,49 @@
 #include "NodeDB.h"
 #include <libpax_api.h>
 
+#ifndef DEVICE_LIST_CAPACITY
+#define DEVICE_LIST_CAPACITY 100
+#endif
+
+
 /**
  * Wrapper module for the estimate passenger (PAX) count library (https://github.com/dbinfrago/libpax) which
  * implements the core functionality of the ESP32 Paxcounter project (https://github.com/cyberman54/ESP32-Paxcounter)
  */
-class PaxcounterModule : private concurrency::OSThread, public ProtobufModule<meshtastic_Paxcount>
-{
+class PaxcounterModule : private concurrency::OSThread, public ProtobufModule<meshtastic_Paxcount> {
     bool firstTime = true;
     bool reportedDataSent = true;
 
     static void handlePaxCounterReportRequest();
 
-  public:
+public:
     PaxcounterModule();
 
-  protected:
+    ~PaxcounterModule() override;
+
+protected:
+    pax_device_list_t device_list_from_libpax;
+
+    void initDeviceList(size_t capacity);
+
+    void cleanupDeviceList();
+
     struct count_payload_t count_from_libpax = {0, 0, 0};
+
     virtual int32_t runOnce() override;
+
     bool sendInfo(NodeNum dest = NODENUM_BROADCAST);
+
     virtual bool handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshtastic_Paxcount *p) override;
+
     virtual meshtastic_MeshPacket *allocReply() override;
-    bool isActive() { return moduleConfig.paxcounter.enabled && !config.bluetooth.enabled && !config.network.wifi_enabled; }
+
+    bool isActive() {
+        return moduleConfig.paxcounter.enabled && !config.bluetooth.enabled && !config.network.wifi_enabled;
+    }
 #if HAS_SCREEN
     virtual bool wantUIFrame() override { return isActive(); }
+
     virtual void drawFrame(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y) override;
 #endif
 };
