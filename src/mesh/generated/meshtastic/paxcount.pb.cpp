@@ -9,4 +9,10 @@
 PB_BIND(meshtastic_Paxcount, meshtastic_Paxcount, AUTO)
 
 
+PB_BIND(meshtastic_PaxDevice, meshtastic_PaxDevice, AUTO)
+
+
+PB_BIND(meshtastic_PaxList, meshtastic_PaxList, AUTO)
+
+
 
