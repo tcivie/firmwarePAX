@@ -9,6 +9,14 @@
 #error Regenerate this file with the current version of nanopb generator.
 #endif
 
+/* Enum definitions */
+/* Device type enum matching libpax snifftype_t */
+typedef enum _meshtastic_DeviceType {
+    meshtastic_DeviceType_DEVICE_TYPE_UNKNOWN = 0, /* Renamed from UNKNOWN */
+    meshtastic_DeviceType_DEVICE_TYPE_WIFI = 1, /* Renamed from WIFI */
+    meshtastic_DeviceType_DEVICE_TYPE_BLE = 2 /* Renamed from BLE */
+} meshtastic_DeviceType;
+
 /* Struct definitions */
 /* Basic PAX counter message for simple device counts */
 typedef struct _meshtastic_Paxcount {
@@ -20,30 +28,26 @@ typedef struct _meshtastic_Paxcount {
     uint32_t uptime;
 } meshtastic_Paxcount;
 
-/* Detailed device information for a single detected device */
+/* Detailed device information for a single detected device matching pax_device_info_t */
 typedef struct _meshtastic_PaxDevice {
     /* MAC address of the device (as byte array) */
     pb_callback_t mac_address;
-    /* Signal strength in dBm */
-    int32_t rssi;
-    /* Device type (0 = unknown, 1 = WiFi, 2 = BLE) */
-    uint32_t device_type;
-    /* First time seen (timestamp in seconds since boot) */
-    uint32_t first_seen;
-    /* Last time seen (timestamp in seconds since boot) */
-    uint32_t last_seen;
+    /* Device type (WIFI or BLE) */
+    meshtastic_DeviceType device_type;
+    /* Signal strength as uint8_t */
+    uint32_t rssi;
+    /* Time when detected (timestamp in seconds since boot) */
+    uint32_t timestamp;
 } meshtastic_PaxDevice;
 
-/* List of detected PAX devices with detailed information */
+/* List of detected PAX devices with detailed information matching pax_device_list_t */
 typedef struct _meshtastic_PaxList {
     /* List of detailed device information */
     pb_callback_t devices;
-    /* Uptime in seconds */
-    uint32_t uptime;
-    /* Total WiFi devices count (for convenience) */
-    uint32_t wifi_count;
-    /* Total BLE devices count (for convenience) */
-    uint32_t ble_count;
+    /* Current number of devices in the list */
+    uint32_t count;
+    /* Maximum capacity of the list */
+    uint32_t capacity;
 } meshtastic_PaxList;
 
 
@@ -51,27 +55,35 @@ typedef struct _meshtastic_PaxList {
 extern "C" {
 #endif
 
+/* Helper constants for enums */
+#define _meshtastic_DeviceType_MIN meshtastic_DeviceType_DEVICE_TYPE_UNKNOWN
+#define _meshtastic_DeviceType_MAX meshtastic_DeviceType_DEVICE_TYPE_BLE
+#define _meshtastic_DeviceType_ARRAYSIZE ((meshtastic_DeviceType)(meshtastic_DeviceType_DEVICE_TYPE_BLE+1))
+
+
+#define meshtastic_PaxDevice_device_type_ENUMTYPE meshtastic_DeviceType
+
+
+
 /* Initializer values for message structs */
 #define meshtastic_Paxcount_init_default         {0, 0, 0}
-#define meshtastic_PaxDevice_init_default        {{{NULL}, NULL}, 0, 0, 0, 0}
-#define meshtastic_PaxList_init_default          {{{NULL}, NULL}, 0, 0, 0}
+#define meshtastic_PaxDevice_init_default        {{{NULL}, NULL}, _meshtastic_DeviceType_MIN, 0, 0}
+#define meshtastic_PaxList_init_default          {{{NULL}, NULL}, 0, 0}
 #define meshtastic_Paxcount_init_zero            {0, 0, 0}
-#define meshtastic_PaxDevice_init_zero           {{{NULL}, NULL}, 0, 0, 0, 0}
-#define meshtastic_PaxList_init_zero             {{{NULL}, NULL}, 0, 0, 0}
+#define meshtastic_PaxDevice_init_zero           {{{NULL}, NULL}, _meshtastic_DeviceType_MIN, 0, 0}
+#define meshtastic_PaxList_init_zero             {{{NULL}, NULL}, 0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define meshtastic_Paxcount_wifi_tag             1
 #define meshtastic_Paxcount_ble_tag              2
 #define meshtastic_Paxcount_uptime_tag           3
 #define meshtastic_PaxDevice_mac_address_tag     1
-#define meshtastic_PaxDevice_rssi_tag            2
-#define meshtastic_PaxDevice_device_type_tag     3
-#define meshtastic_PaxDevice_first_seen_tag      4
-#define meshtastic_PaxDevice_last_seen_tag       5
+#define meshtastic_PaxDevice_device_type_tag     2
+#define meshtastic_PaxDevice_rssi_tag            3
+#define meshtastic_PaxDevice_timestamp_tag       4
 #define meshtastic_PaxList_devices_tag           1
-#define meshtastic_PaxList_uptime_tag            2
-#define meshtastic_PaxList_wifi_count_tag        3
-#define meshtastic_PaxList_ble_count_tag         4
+#define meshtastic_PaxList_count_tag             2
+#define meshtastic_PaxList_capacity_tag          3
 
 /* Struct field encoding specification for nanopb */
 #define meshtastic_Paxcount_FIELDLIST(X, a) \
@@ -83,18 +95,16 @@ X(a, STATIC,   SINGULAR, UINT32,   uptime,            3)
 
 #define meshtastic_PaxDevice_FIELDLIST(X, a) \
 X(a, CALLBACK, SINGULAR, BYTES,    mac_address,       1) \
-X(a, STATIC,   SINGULAR, INT32,    rssi,              2) \
-X(a, STATIC,   SINGULAR, UINT32,   device_type,       3) \
-X(a, STATIC,   SINGULAR, UINT32,   first_seen,        4) \
-X(a, STATIC,   SINGULAR, UINT32,   last_seen,         5)
+X(a, STATIC,   SINGULAR, UENUM,    device_type,       2) \
+X(a, STATIC,   SINGULAR, UINT32,   rssi,              3) \
+X(a, STATIC,   SINGULAR, UINT32,   timestamp,         4)
 #define meshtastic_PaxDevice_CALLBACK pb_default_field_callback
 #define meshtastic_PaxDevice_DEFAULT NULL
 
 #define meshtastic_PaxList_FIELDLIST(X, a) \
 X(a, CALLBACK, REPEATED, MESSAGE,  devices,           1) \
-X(a, STATIC,   SINGULAR, UINT32,   uptime,            2) \
-X(a, STATIC,   SINGULAR, UINT32,   wifi_count,        3) \
-X(a, STATIC,   SINGULAR, UINT32,   ble_count,         4)
+X(a, STATIC,   SINGULAR, UINT32,   count,             2) \
+X(a, STATIC,   SINGULAR, UINT32,   capacity,          3)
 #define meshtastic_PaxList_CALLBACK pb_default_field_callback
 #define meshtastic_PaxList_DEFAULT NULL
 #define meshtastic_PaxList_devices_MSGTYPE meshtastic_PaxDevice
