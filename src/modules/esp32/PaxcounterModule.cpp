@@ -14,22 +14,47 @@ PaxcounterModule* paxcounterModule;
  */
 void PaxcounterModule::handlePaxCounterReportRequest()
 {
+    // Safety check - if module pointer is null, don't proceed
+    if (!paxcounterModule)
+    {
+        LOG_ERROR("PaxcounterModule: Callback called but module is null!");
+        return;
+    }
+
+    LOG_DEBUG("PaxcounterModule: Starting handlePaxCounterReportRequest");
+
     // The libpax library already updated our data structure, just before invoking this callback.
     LOG_INFO("PaxcounterModule: libpax reported new data: wifi=%d; ble=%d; uptime=%lu",
-             paxcounterModule->count_from_libpax.wifi_count, paxcounterModule->count_from_libpax.ble_count,
+             paxcounterModule->count_from_libpax.wifi_count,
+             paxcounterModule->count_from_libpax.ble_count,
              millis() / 1000);
 
-    LOG_DEBUG("PaxcounterModule: In handlePaxCounterReportRequest callback");
+    // Make sure we don't access devices_from_libpax.devices if it's null
     LOG_DEBUG("PaxcounterModule: Current device list - count: %d, capacity: %d, devices ptr: %p",
               paxcounterModule->devices_from_libpax.count,
               paxcounterModule->devices_from_libpax.capacity,
               paxcounterModule->devices_from_libpax.devices);
 
+    // Reset flags to trigger sending
     paxcounterModule->reportedDataSent = false;
-    paxcounterModule->deviceListSent = false;
 
-    LOG_DEBUG("PaxcounterModule: Reset flags, about to call setIntervalFromNow(0)");
+    // Only set deviceListSent to false if we actually have devices
+    if (paxcounterModule->devices_from_libpax.devices != nullptr &&
+        paxcounterModule->devices_from_libpax.count > 0)
+    {
+        paxcounterModule->deviceListSent = false;
+        LOG_DEBUG("PaxcounterModule: Reset deviceListSent flag");
+    }
+    else
+    {
+        LOG_DEBUG("PaxcounterModule: No valid devices, keeping deviceListSent=true");
+    }
+
+    LOG_DEBUG("PaxcounterModule: About to call setIntervalFromNow(0)");
+
+    // Schedule the module to run soon
     paxcounterModule->setIntervalFromNow(0);
+
     LOG_DEBUG("PaxcounterModule: Completed handlePaxCounterReportRequest");
 }
 
@@ -308,7 +333,7 @@ bool PaxcounterModule::sendDeviceList(NodeNum dest)
 
     // Use a different port number for PaxList messages
     LOG_DEBUG("PaxcounterModule: Setting port number");
-    p->decoded.portnum = meshtastic_PortNum_PAXCOUNTER_APP + 1; // Use a distinct port
+    p->decoded.portnum = meshtastic_PortNum_PAXCOUNTER_LIST_APP; // Use a distinct port
 
     LOG_DEBUG("PaxcounterModule: About to send to mesh");
     service->sendToMesh(p, RX_SRC_LOCAL, true);
