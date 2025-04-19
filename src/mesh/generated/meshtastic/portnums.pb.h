@@ -128,6 +128,9 @@ typedef enum _meshtastic_PortNum {
     meshtastic_PortNum_MAP_REPORT_APP = 73,
     /* PowerStress based monitoring support (for automated power consumption testing) */
     meshtastic_PortNum_POWERSTRESS_APP = 74,
+    /* Paxcounter detailed device list included in the firmware
+ ENCODING: protobuf (PaxList) */
+    meshtastic_PortNum_PAXCOUNTER_LIST_APP = 75,
     /* Reticulum Network Stack Tunnel App
  ENCODING: Fragmented RNS Packet. Handled by Meshtastic RNS interface */
     meshtastic_PortNum_RETICULUM_TUNNEL_APP = 76,
