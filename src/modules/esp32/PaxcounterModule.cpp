@@ -18,9 +18,19 @@ void PaxcounterModule::handlePaxCounterReportRequest()
     LOG_INFO("PaxcounterModule: libpax reported new data: wifi=%d; ble=%d; uptime=%lu",
              paxcounterModule->count_from_libpax.wifi_count, paxcounterModule->count_from_libpax.ble_count,
              millis() / 1000);
+
+    LOG_DEBUG("PaxcounterModule: In handlePaxCounterReportRequest callback");
+    LOG_DEBUG("PaxcounterModule: Current device list - count: %d, capacity: %d, devices ptr: %p",
+              paxcounterModule->devices_from_libpax.count,
+              paxcounterModule->devices_from_libpax.capacity,
+              paxcounterModule->devices_from_libpax.devices);
+
     paxcounterModule->reportedDataSent = false;
     paxcounterModule->deviceListSent = false;
+
+    LOG_DEBUG("PaxcounterModule: Reset flags, about to call setIntervalFromNow(0)");
     paxcounterModule->setIntervalFromNow(0);
+    LOG_DEBUG("PaxcounterModule: Completed handlePaxCounterReportRequest");
 }
 
 PaxcounterModule::PaxcounterModule()
@@ -68,32 +78,123 @@ bool PaxcounterModule::sendInfo(NodeNum dest)
  */
 bool PaxcounterModule::sendDeviceList(NodeNum dest)
 {
-    if (paxcounterModule->deviceListSent)
-        return false;
+    LOG_DEBUG("PaxcounterModule: Starting sendDeviceList function");
 
-    libpax_list(&devices_from_libpax);
+    if (paxcounterModule->deviceListSent)
+    {
+        LOG_DEBUG("PaxcounterModule: Device list already sent, skipping");
+        return false;
+    }
+
+    LOG_DEBUG("PaxcounterModule: About to call libpax_list");
+
+    // Log the device list structure before calling libpax_list
+    LOG_DEBUG("PaxcounterModule: Before libpax_list - count: %d, capacity: %d, devices ptr: %p",
+              devices_from_libpax.count, devices_from_libpax.capacity, devices_from_libpax.devices);
+
+    int result = libpax_list(&devices_from_libpax);
+
+    LOG_DEBUG("PaxcounterModule: libpax_list returned: %d", result);
+
+    // Log the device list structure after calling libpax_list
+    LOG_DEBUG("PaxcounterModule: After libpax_list - count: %d, capacity: %d, devices ptr: %p",
+              devices_from_libpax.count, devices_from_libpax.capacity, devices_from_libpax.devices);
+
+    if (result != 0)
+    {
+        LOG_ERROR("PaxcounterModule: libpax_list failed with code: %d", result);
+        return false;
+    }
+
+    if (devices_from_libpax.count == 0)
+    {
+        LOG_DEBUG("PaxcounterModule: No devices to send, count is 0");
+        paxcounterModule->deviceListSent = true;
+        return false;
+    }
+
+    if (devices_from_libpax.devices == nullptr)
+    {
+        LOG_ERROR("PaxcounterModule: Device list pointer is null!");
+        return false;
+    }
 
     LOG_INFO("PaxcounterModule: send device list with %d devices", devices_from_libpax.count);
 
+    // Log first few devices for debugging
+    for (uint32_t i = 0; i < min(devices_from_libpax.count, (uint32_t)3); i++)
+    {
+        if (i < devices_from_libpax.capacity)
+        {
+            LOG_DEBUG("PaxcounterModule: Device[%d] - type: %d, rssi: %d, timestamp: %lu, mac ptr: %p",
+                      i, devices_from_libpax.devices[i].type, devices_from_libpax.devices[i].rssi,
+                      devices_from_libpax.devices[i].timestamp, devices_from_libpax.devices[i].mac);
+        }
+    }
+
     // Create a PaxList message
+    LOG_DEBUG("PaxcounterModule: Creating PaxList message");
     meshtastic_PaxList pl = meshtastic_PaxList_init_default;
     pl.count = devices_from_libpax.count;
     pl.capacity = devices_from_libpax.capacity;
 
     // Set up the callback for handling the devices array
+    LOG_DEBUG("PaxcounterModule: Setting up encode callback");
     pl.devices.funcs.encode = [](pb_ostream_t* stream, const pb_field_t* field, void* const * arg) -> bool
     {
+        LOG_DEBUG("PaxcounterModule: In encode callback, arg: %p", arg);
+
+        if (!arg || !*arg)
+        {
+            LOG_ERROR("PaxcounterModule: Null arg pointer in encode callback");
+            return false;
+        }
+
         pax_device_list_t* deviceList = (pax_device_list_t*)*arg;
 
-        // Iterate through each device in the list
-        for (uint32_t i = 0; i < deviceList->count; i++)
+        LOG_DEBUG("PaxcounterModule: DeviceList in callback - count: %d, capacity: %d, devices ptr: %p",
+                  deviceList->count, deviceList->capacity, deviceList->devices);
+
+        if (!deviceList->devices)
         {
+            LOG_ERROR("PaxcounterModule: Null devices pointer in encode callback");
+            return false;
+        }
+
+        // Limit number of devices to encode to avoid buffer overflow
+        uint32_t device_count = min(deviceList->count, (uint32_t)10);
+        LOG_DEBUG("PaxcounterModule: Will encode %d devices", device_count);
+
+        // Iterate through each device in the list
+        for (uint32_t i = 0; i < device_count; i++)
+        {
+            LOG_DEBUG("PaxcounterModule: Processing device %d", i);
+
+            // Safety check for device index
+            if (i >= deviceList->capacity)
+            {
+                LOG_ERROR("PaxcounterModule: Device index out of bounds: %d >= %d", i, deviceList->capacity);
+                return false;
+            }
+
             // Start a submessage for each device
             if (!pb_encode_tag_for_field(stream, field))
+            {
+                LOG_ERROR("PaxcounterModule: Failed to encode tag for device %d", i);
                 return false;
+            }
 
             // Get the current device info
             pax_device_info_t* device = &deviceList->devices[i];
+
+            LOG_DEBUG("PaxcounterModule: Device[%d] - type: %d, rssi: %d, mac ptr: %p",
+                      i, device->type, device->rssi, device->mac);
+
+            if (!device->mac)
+            {
+                LOG_ERROR("PaxcounterModule: Null MAC address for device %d", i);
+                return false;
+            }
 
             // Create and populate a PaxDevice message
             meshtastic_PaxDevice paxDevice = meshtastic_PaxDevice_init_default;
@@ -102,51 +203,117 @@ bool PaxcounterModule::sendDeviceList(NodeNum dest)
             {
             case MAC_SNIFF_WIFI:
                 paxDevice.device_type = meshtastic_DeviceType_DEVICE_TYPE_WIFI;
+                LOG_DEBUG("PaxcounterModule: Device %d is WIFI", i);
                 break;
             case MAC_SNIFF_BLE_ENS:
+                LOG_DEBUG("PaxcounterModule: Device %d is BLE_ENS", i);
+                paxDevice.device_type = meshtastic_DeviceType_DEVICE_TYPE_BLE;
+                break;
             case MAC_SNIFF_BLE:
+                LOG_DEBUG("PaxcounterModule: Device %d is BLE", i);
+                paxDevice.device_type = meshtastic_DeviceType_DEVICE_TYPE_BLE;
+                break;
             default:
+                LOG_DEBUG("PaxcounterModule: Device %d has unknown type: %d", i, device->type);
                 paxDevice.device_type = meshtastic_DeviceType_DEVICE_TYPE_BLE;
                 break;
             }
+
             paxDevice.rssi = device->rssi;
             paxDevice.timestamp = device->timestamp;
+
+            LOG_DEBUG("PaxcounterModule: Setting up MAC address callback for device %d", i);
             paxDevice.mac_address.funcs.encode = [](pb_ostream_t* stream, const pb_field_t* field,
                                                     void* const * arg) -> bool
             {
-                uint8_t* mac = (uint8_t*)*arg;
-                if (!pb_encode_tag_for_field(stream, field))
+                LOG_DEBUG("PaxcounterModule: In MAC address encode callback, arg: %p", arg);
+
+                if (!arg || !*arg)
+                {
+                    LOG_ERROR("PaxcounterModule: Null MAC address arg");
                     return false;
-                return pb_encode_string(stream, mac, 6); // MAC address is 6 bytes
+                }
+
+                uint8_t* mac = (uint8_t*)*arg;
+
+                LOG_DEBUG("PaxcounterModule: MAC bytes: %02x:%02x:%02x:%02x:%02x:%02x",
+                          mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+                if (!pb_encode_tag_for_field(stream, field))
+                {
+                    LOG_ERROR("PaxcounterModule: Failed to encode tag for MAC field");
+                    return false;
+                }
+
+                bool result = pb_encode_string(stream, mac, 6);
+                LOG_DEBUG("PaxcounterModule: MAC encoding result: %d", result);
+                return result;
             };
+
             paxDevice.mac_address.arg = device->mac;
 
             // Encode the device as a submessage
+            LOG_DEBUG("PaxcounterModule: Encoding device %d as submessage", i);
             if (!pb_encode_submessage(stream, meshtastic_PaxDevice_fields, &paxDevice))
+            {
+                LOG_ERROR("PaxcounterModule: Failed to encode device %d as submessage", i);
                 return false;
+            }
+
+            LOG_DEBUG("PaxcounterModule: Successfully encoded device %d", i);
         }
 
+        LOG_DEBUG("PaxcounterModule: Completed device encoding, returning true");
         return true;
     };
-    pl.devices.arg = &devices_from_libpax;
 
-    // We need to manually allocate and encode the packet since we're not using the templated method
+    pl.devices.arg = &devices_from_libpax;
+    LOG_DEBUG("PaxcounterModule: Set device list argument: %p", &devices_from_libpax);
+
+    // Allocate packet
+    LOG_DEBUG("PaxcounterModule: Allocating data packet");
     meshtastic_MeshPacket* p = allocDataPacket();
     p->to = dest;
     p->decoded.want_response = false;
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
 
     // Manually encode the protobuf
-    p->decoded.payload.size = pb_encode_to_bytes(p->decoded.payload.bytes,
-                                                 sizeof(p->decoded.payload.bytes),
-                                                 meshtastic_PaxList_fields,
-                                                 &pl);
+    LOG_DEBUG("PaxcounterModule: About to encode protobuf");
+    size_t written_size = 0;
+
+    try
+    {
+        written_size = pb_encode_to_bytes(p->decoded.payload.bytes,
+                                          sizeof(p->decoded.payload.bytes),
+                                          meshtastic_PaxList_fields,
+                                          &pl);
+
+        LOG_DEBUG("PaxcounterModule: Protobuf encoding completed, size: %d", (int)written_size);
+
+        if (written_size == 0)
+        {
+            LOG_ERROR("PaxcounterModule: Failed to encode protobuf - zero size returned");
+            packetPool.release(p);
+            return false;
+        }
+
+        p->decoded.payload.size = written_size;
+    }
+    catch (...)
+    {
+        LOG_ERROR("PaxcounterModule: Exception during protobuf encoding!");
+        packetPool.release(p);
+        return false;
+    }
 
     // Use a different port number for PaxList messages
-    p->decoded.portnum = meshtastic_PortNum_PAXCOUNTER_LIST_APP;
+    LOG_DEBUG("PaxcounterModule: Setting port number");
+    p->decoded.portnum = meshtastic_PortNum_PAXCOUNTER_APP + 1; // Use a distinct port
 
+    LOG_DEBUG("PaxcounterModule: About to send to mesh");
     service->sendToMesh(p, RX_SRC_LOCAL, true);
 
+    LOG_DEBUG("PaxcounterModule: Successfully sent to mesh");
     paxcounterModule->deviceListSent = true;
 
     return true;
@@ -166,12 +333,18 @@ meshtastic_MeshPacket* PaxcounterModule::allocReply()
     return allocDataProtobuf(pl);
 }
 
+// Add this at the beginning of your runOnce() method in PaxcounterModule.cpp:
 int32_t PaxcounterModule::runOnce()
 {
     if (isActive())
     {
+        LOG_DEBUG("PaxcounterModule::runOnce - isActive is true");
+
         if (firstTime)
         {
+            // Log existing code
+            LOG_DEBUG("PaxcounterModule: Before firstTime initialization");
+
             firstTime = false;
             LOG_DEBUG("Paxcounter starting up with interval of %d seconds",
                       Default::getConfiguredOrDefault(moduleConfig.paxcounter.paxcounter_update_interval,
@@ -196,20 +369,36 @@ int32_t PaxcounterModule::runOnce()
                                                         default_telemetry_broadcast_interval_secs),
                         0);
             libpax_start();
+
+            // Rest of your code...
+
+            LOG_DEBUG("PaxcounterModule: After libpax_init and libpax_start calls");
         }
         else
         {
-            // First send the count information
-            sendInfo(NODENUM_BROADCAST);
+            LOG_DEBUG("PaxcounterModule: In runOnce, about to send data");
 
-            // Then send the device list
-            sendDeviceList(NODENUM_BROADCAST);
+            // First send the count information - add debug before and after
+            LOG_DEBUG("PaxcounterModule: Before calling sendInfo()");
+            bool infoSent = sendInfo(NODENUM_BROADCAST);
+            LOG_DEBUG("PaxcounterModule: sendInfo() returned: %d", infoSent);
+
+            // Then send the device list - add debug before and after
+            LOG_DEBUG("PaxcounterModule: Before calling sendDeviceList()");
+            bool deviceListSent = sendDeviceList(NODENUM_BROADCAST);
+            LOG_DEBUG("PaxcounterModule: sendDeviceList() returned: %d", deviceListSent);
+
+            LOG_DEBUG("PaxcounterModule: Completed sending data in runOnce");
         }
+
+        // Return the interval...
+        LOG_DEBUG("PaxcounterModule: Calculating next interval");
         return Default::getConfiguredOrDefaultMsScaled(moduleConfig.paxcounter.paxcounter_update_interval,
                                                        default_telemetry_broadcast_interval_secs, numOnlineNodes);
     }
     else
     {
+        LOG_DEBUG("PaxcounterModule::runOnce - isActive is false, disabling");
         return disable();
     }
 }
